@@ -1,0 +1,82 @@
+"""
+Dummy KPI Data Generator
+------------------------
+
+This script creates realistic KPI data for multiple agents over a date range.
+It outputs the data into:  data/agent_kpi_data.xlsx
+"""
+
+# ==== Imports ====
+
+import pandas as pd                        # Used to store structured data in a DataFrame and export to Excel
+import numpy as np                         # Used for random number generation
+from datetime import datetime, timedelta   # Used to generate dates for each KPI record
+import os                                  # Used to create folders (like the /data folder)
+
+
+# ==== Parameters ====
+
+# List of agent names to generate data for
+agents = ["John", "Sarah", "Michael", "Aisha", "Tom", "Emily"]
+
+# Start date for the KPI records
+start_date = datetime(2025, 1, 1)
+
+# Number of days per agent (e.g., 90 = 3 months)
+days = 90
+
+
+# ==== Data Generation ====
+
+rows = []   # This list will store one dictionary per KPI record
+
+# Loop through each agent
+for agent in agents:
+
+    # Loop through each day for that agent
+    for i in range(days):
+
+        # Generate the date by adding "i" days to the start date
+        date = start_date + timedelta(days=i)
+
+        # ----- Generate realistic KPI metrics -----
+
+        # Number of passes recorded that day (between 8–19 inclusive)
+        pass_count = np.random.randint(8, 20)
+
+        # Number of fails recorded (between 0–3 inclusive)
+        fail_count = np.random.randint(0, 4)
+
+        # Utilisation % between 70% and 98%, rounded to two decimal places
+        utilisation = np.round(np.random.uniform(0.70, 0.98), 2)
+
+        # Productivity score between 35–59 inclusive
+        productivity = np.random.randint(35, 60)
+
+        # Create one full KPI record (one row of data)
+        rows.append({
+            "Agent": agent,
+            "Date": date,
+            "Pass": pass_count,
+            "Fail": fail_count,
+            "Utilisation": utilisation,
+            "Productivity": productivity
+        })
+
+
+# ==== Convert to DataFrame ====
+
+# Convert the list of dictionaries into a DataFrame (table)
+df = pd.DataFrame(rows)
+
+
+# ==== Save Output ====
+
+# Create the /data folder if it does not already exist
+os.makedirs("data", exist_ok=True)
+
+# Save the DataFrame as an Excel file inside /data
+df.to_excel("data/agent_kpi_data.xlsx", index=False)
+
+print("Dummy data created → data/agent_kpi_data.xlsx")
+
