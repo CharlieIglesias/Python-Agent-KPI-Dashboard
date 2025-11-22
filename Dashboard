@@ -1,0 +1,160 @@
+"""
+Dashboard.py
+-------------
+Single-file PyQt6 dashboard for agent KPIs
+- Loads KPI data from 'data/agent_kpi_data.xlsx'
+- Shows Team average Utilisation & Productivity (bar chart)
+- Toggle to Pass Rate trend for selected agent or Team
+- Exports all charts to a PDF
+"""
+
+import sys
+import os
+import pandas as pd
+from PyQt6.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QLabel, QComboBox, QPushButton, QScrollArea
+)
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_pdf import PdfPages
+
+# ==== Load Data ====
+def load_data(file_path: str = "data/agent_kpi_data.xlsx") -> pd.DataFrame:
+    """Load KPI data, add Month column and calculate Pass Rate."""
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"{file_path} does not exist. Run CreateData.py first.")
+    df = pd.read_excel(file_path)
+    df["Date"] = pd.to_datetime(df["Date"])
+    df["Month"] = df["Date"].dt.to_period("M").astype(str)  # YYYY-MM
+    df["Pass Rate"] = df["Pass"] / (df["Pass"] + df["Fail"])
+    return df
+
+# ==== Chart Functions ====
+def team_bar_chart(df: pd.DataFrame) -> Figure:
+    """Create grouped bar chart for Team average Utilisation & Productivity."""
+    summary = df.groupby("Agent").agg({"Utilisation": "mean", "Productivity": "mean"}).reset_index()
+    summary["Productivity"] = summary["Productivity"] / 59  # Scale Productivity to %
+
+    fig = Figure(figsize=(10,5))
+    ax = fig.add_subplot(111)
+    width = 0.35
+    x = range(len(summary))
+    ax.bar([i - width/2 for i in x], summary["Utilisation"]*100, width=width, label="Utilisation (%)")
+    ax.bar([i + width/2 for i in x], summary["Productivity"]*100, width=width, label="Productivity (%)")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(summary["Agent"])
+    ax.set_ylabel("Percentage (%)")
+    ax.set_title("Team Average Utilisation & Productivity")
+    ax.legend()
+    fig.tight_layout()
+    return fig
+
+def trend_chart(df: pd.DataFrame, selection: str) -> Figure:
+    """Create line chart for Pass Rate trend for selected agent or Team."""
+    fig = Figure(figsize=(10,4))
+    ax = fig.add_subplot(111)
+
+    if selection == "Team":
+        df_grouped = df.groupby("Date").agg({"Pass Rate": "mean"}).reset_index()
+        ax.plot(df_grouped["Date"], df_grouped["Pass Rate"]*100, marker="o", linestyle="-")
+        ax.set_title("Team Pass Rate Trend")
+    else:
+        df_agent = df[df["Agent"] == selection].sort_values("Date")
+        ax.plot(df_agent["Date"], df_agent["Pass Rate"]*100, marker="o", linestyle="-")
+        ax.set_title(f"Pass Rate Trend — {selection}")
+
+    ax.set_ylabel("Pass Rate (%)")
+    ax.set_xlabel("Date")
+    fig.autofmt_xdate()
+    fig.tight_layout()
+    return fig
+
+# ==== PDF Export ====
+def export_pdf(df: pd.DataFrame, output_path: str = "outputs/KPI_Dashboard.pdf") -> None:
+    """Export Team bar chart and Pass Rate trends to PDF."""
+    os.makedirs("outputs", exist_ok=True)
+    with PdfPages(output_path) as pdf:
+        pdf.savefig(team_bar_chart(df))
+        pdf.savefig(trend_chart(df, "Team"))
+        for agent in df["Agent"].unique():
+            pdf.savefig(trend_chart(df, agent))
+    print(f"PDF exported → {output_path}")
+
+# ==== Dashboard UI ====
+class Dashboard(QWidget):
+    agent_select: QComboBox
+    scroll: QScrollArea
+    scroll_widget: QWidget
+    scroll_layout: QVBoxLayout
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("KPI Dashboard")
+        self.setGeometry(100, 100, 1200, 800)
+        self.df: pd.DataFrame = load_data()
+
+        # Initialize instance attributes to avoid PyCharm warnings
+        self.agent_select = QComboBox()
+        self.scroll = QScrollArea()
+        self.scroll_widget = QWidget()
+        self.scroll_layout = QVBoxLayout()
+
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+
+        layout.addWidget(QLabel("Select Agent or Team for Pass Rate Trend:"))
+        agent_options = ["Team"] + sorted(self.df["Agent"].unique())
+        self.agent_select.addItems(agent_options)
+        layout.addWidget(self.agent_select)
+
+        # Buttons
+        prod_util_btn: QPushButton = QPushButton("Show Productivity and Utilisation")
+        prod_util_btn.clicked.connect(self.show_bar_chart)
+        layout.addWidget(prod_util_btn)
+
+        pass_rate_btn: QPushButton = QPushButton("Show Pass Rate")
+        pass_rate_btn.clicked.connect(self.show_trend_chart)
+        layout.addWidget(pass_rate_btn)
+
+        pdf_btn: QPushButton = QPushButton("Export PDF Dashboard")
+        pdf_btn.clicked.connect(lambda: export_pdf(self.df))
+        layout.addWidget(pdf_btn)
+
+        # Scroll area
+        self.scroll_widget.setLayout(self.scroll_layout)
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setWidget(self.scroll_widget)
+        layout.addWidget(self.scroll)
+
+        # Initial Team bar chart
+        self.show_bar_chart()
+        self.setLayout(layout)
+
+    def show_trend_chart(self) -> None:
+        self.clear_scroll()
+        selection = self.agent_select.currentText()
+        fig = trend_chart(self.df, selection)
+        canvas = FigureCanvas(fig)
+        self.scroll_layout.addWidget(canvas)
+
+    def show_bar_chart(self) -> None:
+        self.clear_scroll()
+        fig = team_bar_chart(self.df)
+        canvas = FigureCanvas(fig)
+        self.scroll_layout.addWidget(canvas)
+
+    def clear_scroll(self) -> None:
+        for i in reversed(range(self.scroll_layout.count())):
+            widget = self.scroll_layout.itemAt(i).widget()
+            if widget:
+                widget.setParent(None)
+
+# ==== Run ====
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = Dashboard()
+    window.show()
+    sys.exit(app.exec())
